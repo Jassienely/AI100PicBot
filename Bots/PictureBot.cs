@@ -216,24 +216,25 @@ namespace PictureBot.Bots
                                 QueryDefinition queryDefinition = new QueryDefinition(sql);
                                 FeedIterator<Picture> queryResultSetIterator = _container.GetItemQueryIterator<Picture>(queryDefinition);
 
-                                var card = new HeroCard() {
-                                    Title = $"Search target: {facet}",
-                                    Images = new List<CardImage>()
-                                };
+                                var reply = stepContext.Context.Activity.CreateReply();
+                                reply.Text = $"Search target: {facet}";
+                                reply.AttachmentLayout = AttachmentLayoutTypes.Carousel;
 
                                 while (queryResultSetIterator.HasMoreResults)
                                 {
                                     FeedResponse<Picture> currentResultSet = await queryResultSetIterator.ReadNextAsync();
                                     foreach (Picture picture in currentResultSet)
                                     {
-                                        card.Images.Add(new CardImage() {
-                                            Url = $"{picture.Url}",
-                                            Alt = $"{picture.Description}"
-                                        });
+
+                                        var card = new HeroCard() {
+                                            Title = $"{picture.Name}",
+                                            Text = $"{picture.Description}",
+                                            Images = new [] { new CardImage(picture.Url) }
+                                        };
+                                        reply.Attachments.Add(card.ToAttachment());
                                     }
                                 }
-
-                                var reply = MessageFactory.Attachment(card.ToAttachment());
+                               
                                 await stepContext.Context.SendActivityAsync(reply);
 
                                 await MainResponses.ReplyWithSearchConfirmation(stepContext.Context);
