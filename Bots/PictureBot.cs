@@ -212,7 +212,17 @@ namespace PictureBot.Bots
                             case "SearchPic":
                                 string facet = result.Entities["facet"][0].ToString();
                                 string sql = $"SELECT VALUE {{ Name: c.FileName, Url: c.BlobUri, Description: c.Caption }} FROM c WHERE ARRAY_CONTAINS(c.Tags, '{facet}')";
-                                await stepContext.Context.SendActivityAsync(sql);
+                                QueryDefinition queryDefinition = new QueryDefinition(sql);
+                                FeedIterator<Picture> queryResultSetIterator = _container.GetItemQueryIterator<Picture>(queryDefinition);
+
+                                while (queryResultSetIterator.HasMoreResults)
+                                {
+                                    FeedResponse<Picture> currentResultSet = await queryResultSetIterator.ReadNextAsync();
+                                    foreach (Picture picture in currentResultSet)
+                                    {
+                                        await stepContext.Context.SendActivityAsync($"{picture.Url}");
+                                    }
+                                }
 
                                 await MainResponses.ReplyWithSearchConfirmation(stepContext.Context);
                                 await MainResponses.ReplyWithLuisScore(stepContext.Context, topIntent.Value.intent, topIntent.Value.score);
