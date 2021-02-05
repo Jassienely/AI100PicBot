@@ -27,7 +27,8 @@ using Microsoft.Bot.Builder.Azure.Blobs;
 using Microsoft.PictureBot;
 using Microsoft.Azure.Cosmos.Fluent;
 using Microsoft.Azure.Cosmos;
-
+using Azure.AI.TextAnalytics;
+using Azure;
 namespace PictureBot
 {
     public class Startup
@@ -156,6 +157,14 @@ namespace PictureBot
                     );
 
                     return container;
+                });
+                services.AddSingleton<TextAnalyticsClient>(sp =>
+                {
+                    Uri cogsBaseUrl = new Uri(Configuration.GetSection("cogsBaseUrl")?.Value);
+                    string cogsKey = Configuration.GetSection("cogsKey")?.Value;
+
+                    var credentials = new AzureKeyCredential(cogsKey);
+                    return new TextAnalyticsClient(cogsBaseUrl, credentials);
                 });
         }
 

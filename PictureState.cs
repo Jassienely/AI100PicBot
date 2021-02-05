@@ -16,5 +16,7 @@ namespace Microsoft.PictureBot
         public string Greeted { get; set; } = "not greeted";
         public string Search { get; set; } = "";
         public string Searching { get; set; } = "no";
+         // A list of things that users have said to the bot
+        public List<string> UtteranceList { get; private set; } = new List<string>();
     }
 }

@@ -5,8 +5,11 @@
 
 using System;
 using System.Collections.Generic;
+using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Azure.CognitiveServices.Language.LUIS.Runtime;
+using Microsoft.Azure.CognitiveServices.Vision.CustomVision.Prediction;
 using Microsoft.Azure.Cosmos;
 using Microsoft.Bot.Builder;
 using Microsoft.Bot.Builder.AI.Luis;
@@ -15,6 +18,8 @@ using Microsoft.Bot.Schema;
 using Microsoft.Extensions.Logging;
 using Microsoft.PictureBot;
 using PictureBot.Responses;
+using ApiKeyServiceClientCredentials = Microsoft.Azure.CognitiveServices.Vision.CustomVision.Prediction.ApiKeyServiceClientCredentials;
+using Azure.AI.TextAnalytics;
 
 namespace PictureBot.Bots
 {
@@ -32,6 +37,8 @@ namespace PictureBot.Bots
     /// <summary>Contains the set of dialogs and prompts for the picture bot.</summary>
     public class PictureBot : ActivityHandler
     {
+        private TextAnalyticsClient _textAnalyticsClient;
+
         private readonly PictureBotAccessors _accessors;
         // Initialize LUIS Recognizer
         private LuisRecognizer _recognizer { get; } = null;
@@ -54,20 +61,64 @@ namespace PictureBot.Bots
         /// <seealso cref="IMiddleware"/>
         public override async Task OnTurnAsync(ITurnContext turnContext, CancellationToken cancellationToken = default(CancellationToken))
         {
+            
             if (turnContext.Activity.Type is "message")
             {
-                // Establish dialog context from the conversation state.
-                var dc = await _dialogs.CreateContextAsync(turnContext);
-                // Continue any current dialog.
-                var results = await dc.ContinueDialogAsync(cancellationToken);
-
-                // Every turn sends a response, so if no response was sent,
-                // then there no dialog is currently active.
-                if (!turnContext.Responded)
+                var utterance = turnContext.Activity.Text;
+                var state = await _accessors.PictureState.GetAsync(turnContext, () => new PictureState());
+                state.UtteranceList.Add(utterance);
+                await _accessors.ConversationState.SaveChangesAsync(turnContext);
+                var ath = turnContext.Activity.Attachments;
+                if (ath != null && ath[0].ContentType.StartsWith("image/"))
                 {
-                    // Start the main dialog
-                    await dc.BeginDialogAsync("mainDialog", null, cancellationToken);
+                    await turnContext.SendActivityAsync(ath[0].ContentUrl);
+
+                    // TODO: download photo and send to CustomVision prediction endpoint
+
+                    var predictionKey = "755cef546853406e9c3300784e6da249";
+                    var endpoint = "https://cognitive-ai.cognitiveservices.azure.com";
+                    var projectId = "6b52c4df-467b-422c-b4aa-1bb20053ee81";
+                    var publishedModelName = "Iteration1";
+
+                    var cred = new ApiKeyServiceClientCredentials(predictionKey);
+                    var predictionApi = new CustomVisionPredictionClient(cred) {
+                        Endpoint = endpoint
+                    };
+
+                    var httpClient = new HttpClient();
+                    var stream = await httpClient.GetStreamAsync(ath[0].ContentUrl);
+                    var result = predictionApi.DetectImage(new Guid(projectId), publishedModelName, stream);
+                    stream.Close();
+
+                    var tag = result.Predictions[0].TagName;
+                    await turnContext.SendActivityAsync($"tag name = {tag}");
+
                 }
+                DetectedLanguage detectedLanguage = _textAnalyticsClient.DetectLanguage(turnContext.Activity.Text);
+                switch (detectedLanguage.Name)
+                {
+                    case "English":
+                        // Establish dialog context from the conversation state.
+                        var dc = await _dialogs.CreateContextAsync(turnContext);
+                        // Continue any current dialog.
+                        var results = await dc.ContinueDialogAsync(cancellationToken);
+
+                        // Every turn sends a response, so if no response was sent,
+                        // then there no dialog is currently active.
+                        if (!turnContext.Responded)
+                        {
+                            // Start the main dialog
+                            await dc.BeginDialogAsync("mainDialog", null, cancellationToken);
+                        }
+                        break;
+                    default:
+                        //throw error
+                        await turnContext.SendActivityAsync($"I'm sorry, I can only understand English. [{detectedLanguage.Name}]");
+                        break;
+                }
+
+                
+                
             }
         }
         /// <summary>
@@ -77,8 +128,9 @@ namespace PictureBot.Bots
         /// <param name="loggerFactory">A <see cref="ILoggerFactory"/> that is hooked to the Azure App Service provider.</param>
         /// <seealso cref="https://docs.microsoft.com/en-us/aspnet/core/fundamentals/logging/?view=aspnetcore-2.1#windows-eventlog-provider"/>
         private Container _container { get; } = null;
-        public PictureBot(PictureBotAccessors accessors, ILoggerFactory loggerFactory, LuisRecognizer recognizer, Container container)
+        public PictureBot(PictureBotAccessors accessors, ILoggerFactory loggerFactory, LuisRecognizer recognizer, Container container, TextAnalyticsClient analyticsClient)
         {
+            _textAnalyticsClient = analyticsClient;
             _container = container ?? throw new ArgumentNullException(nameof(container));
             _recognizer = recognizer ?? throw new ArgumentNullException(nameof(recognizer));
 
