@@ -6,9 +6,10 @@
 using System;
 using System.Collections.Generic;
 using System.Net.Http;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Azure.CognitiveServices.Language.LUIS.Runtime;
+using Azure.AI.TextAnalytics;
 using Microsoft.Azure.CognitiveServices.Vision.CustomVision.Prediction;
 using Microsoft.Azure.Cosmos;
 using Microsoft.Bot.Builder;
@@ -17,9 +18,10 @@ using Microsoft.Bot.Builder.Dialogs;
 using Microsoft.Bot.Schema;
 using Microsoft.Extensions.Logging;
 using Microsoft.PictureBot;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using PictureBot.Responses;
-using ApiKeyServiceClientCredentials = Microsoft.Azure.CognitiveServices.Vision.CustomVision.Prediction.ApiKeyServiceClientCredentials;
-using Azure.AI.TextAnalytics;
+
 
 namespace PictureBot.Bots
 {
@@ -61,64 +63,90 @@ namespace PictureBot.Bots
         /// <seealso cref="IMiddleware"/>
         public override async Task OnTurnAsync(ITurnContext turnContext, CancellationToken cancellationToken = default(CancellationToken))
         {
-            
+
             if (turnContext.Activity.Type is "message")
             {
                 var utterance = turnContext.Activity.Text;
                 var state = await _accessors.PictureState.GetAsync(turnContext, () => new PictureState());
                 state.UtteranceList.Add(utterance);
                 await _accessors.ConversationState.SaveChangesAsync(turnContext);
-                var ath = turnContext.Activity.Attachments;
-                if (ath != null && ath[0].ContentType.StartsWith("image/"))
-                {
-                    await turnContext.SendActivityAsync(ath[0].ContentUrl);
+                // var ath = turnContext.Activity.Attachments;
+                // if (ath != null && ath[0].ContentType.StartsWith("image/"))
+                // {
+                //     await turnContext.SendActivityAsync(ath[0].ContentUrl);
 
-                    // TODO: download photo and send to CustomVision prediction endpoint
+                //     // TODO: download photo and send to CustomVision prediction endpoint
 
-                    var predictionKey = "755cef546853406e9c3300784e6da249";
-                    var endpoint = "https://cognitive-ai.cognitiveservices.azure.com";
-                    var projectId = "6b52c4df-467b-422c-b4aa-1bb20053ee81";
-                    var publishedModelName = "Iteration1";
+                //     var predictionKey = "755cef546853406e9c3300784e6da249";
+                //     var endpoint = "https://cognitive-ai.cognitiveservices.azure.com";
+                //     var projectId = "6b52c4df-467b-422c-b4aa-1bb20053ee81";
+                //     var publishedModelName = "Iteration1";
 
-                    var cred = new ApiKeyServiceClientCredentials(predictionKey);
-                    var predictionApi = new CustomVisionPredictionClient(cred) {
-                        Endpoint = endpoint
-                    };
+                //     var cred = new ApiKeyServiceClientCredentials(predictionKey);
+                //     var predictionApi = new CustomVisionPredictionClient(cred) {
+                //         Endpoint = endpoint
+                //     };
 
-                    var httpClient = new HttpClient();
-                    var stream = await httpClient.GetStreamAsync(ath[0].ContentUrl);
-                    var result = predictionApi.DetectImage(new Guid(projectId), publishedModelName, stream);
-                    stream.Close();
+                //     var httpClient = new HttpClient();
+                //     var stream = await httpClient.GetStreamAsync(ath[0].ContentUrl);
+                //     var result = predictionApi.DetectImage(new Guid(projectId), publishedModelName, stream);
+                //     stream.Close();
 
-                    var tag = result.Predictions[0].TagName;
-                    await turnContext.SendActivityAsync($"tag name = {tag}");
+                //     var tag = result.Predictions[0].TagName;
+                //     await turnContext.SendActivityAsync($"tag name = {tag}");
 
-                }
+                // }
                 DetectedLanguage detectedLanguage = _textAnalyticsClient.DetectLanguage(turnContext.Activity.Text);
                 switch (detectedLanguage.Name)
                 {
                     case "English":
-                        // Establish dialog context from the conversation state.
-                        var dc = await _dialogs.CreateContextAsync(turnContext);
-                        // Continue any current dialog.
-                        var results = await dc.ContinueDialogAsync(cancellationToken);
 
-                        // Every turn sends a response, so if no response was sent,
-                        // then there no dialog is currently active.
-                        if (!turnContext.Responded)
-                        {
-                            // Start the main dialog
-                            await dc.BeginDialogAsync("mainDialog", null, cancellationToken);
-                        }
                         break;
                     default:
                         //throw error
-                        await turnContext.SendActivityAsync($"I'm sorry, I can only understand English. [{detectedLanguage.Name}]");
+                        // await turnContext.SendActivityAsync($"I'm sorry, I can only understand English. [{detectedLanguage.Name}]");
+                        string subscriptionKey = "79b5b35c5c934e2b8ca58dc0062ce767";
+                        string endpoint = "https://api.cognitive.microsofttranslator.com/";
+                        // Add your location, also known as region. The default is global.
+                        // This is required if using a Cognitive Services resource.
+                        string location = "eastus2";
+                        // Input and output languages are defined as parameters.
+                        string route = "/translate?api-version=3.0&to=en";
+                        string textToTranslate = turnContext.Activity.Text;
+                        object[] body = new object[] { new { Text = textToTranslate } };
+                        var requestBody = JsonConvert.SerializeObject(body);
+
+                        using (var client = new HttpClient())
+                        using (var request = new HttpRequestMessage())
+                        {
+                            // Build the request.
+                            request.Method = HttpMethod.Post;
+                            request.RequestUri = new Uri(endpoint + route);
+                            request.Content = new StringContent(requestBody, Encoding.UTF8, "application/json");
+                            request.Headers.Add("Ocp-Apim-Subscription-Key", subscriptionKey);
+                            request.Headers.Add("Ocp-Apim-Subscription-Region", location);
+
+                            // Send the request and get response.
+                            HttpResponseMessage response = await client.SendAsync(request).ConfigureAwait(false);
+                            // Read response as a string.
+                            string result = await response.Content.ReadAsStringAsync();
+                            turnContext.Activity.Text = JArray.Parse(result)[0]["translations"][0]["text"].ToString();
+                        }
                         break;
                 }
+                // Establish dialog context from the conversation state.
+                var dc = await _dialogs.CreateContextAsync(turnContext);
+                // Continue any current dialog.
+                var results = await dc.ContinueDialogAsync(cancellationToken);
 
-                
-                
+                // Every turn sends a response, so if no response was sent,
+                // then there no dialog is currently active.
+                if (!turnContext.Responded)
+                {
+                    // Start the main dialog
+                    await dc.BeginDialogAsync("mainDialog", null, cancellationToken);
+                }
+
             }
         }
         /// <summary>
@@ -278,15 +306,16 @@ namespace PictureBot.Bots
                                     foreach (Picture picture in currentResultSet)
                                     {
 
-                                        var card = new HeroCard() {
+                                        var card = new HeroCard()
+                                        {
                                             Title = $"{picture.Name}",
                                             Text = $"{picture.Description}",
-                                            Images = new [] { new CardImage(picture.Url) }
+                                            Images = new[] { new CardImage(picture.Url) }
                                         };
                                         reply.Attachments.Add(card.ToAttachment());
                                     }
                                 }
-                               
+
                                 await stepContext.Context.SendActivityAsync(reply);
 
                                 await MainResponses.ReplyWithSearchConfirmation(stepContext.Context);
